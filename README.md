@@ -9,3 +9,5 @@ Source File sorts into specific directories depending on IF specified conditions
 Handles if SourceFile already exists in Destination Directory, or catch-all SortFolder
 Logs all events and sends Mail through 365 smtp of results
 
+
+Working on Encyption for SMTP address used

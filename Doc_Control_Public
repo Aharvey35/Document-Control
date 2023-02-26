@@ -1,0 +1,468 @@
+using System.Diagnostics;
+using System.Net.Mail;
+using System.Net;
+using System.Text.RegularExpressions;
+
+public class KouryTransfer
+
+{
+    // Global Static paths - Will not change without Approval from Koury Staff, Will need to be updated if ever changed
+    static string _activityLogPath = @"\\192.168.252.19\Company\Document Control\Log Files";
+    static string _keyListPath = @"\\192.168.252.19\Company\Projects\KouryTransferProjectPhase2\KeyList.txt";   // This is currently not being used - future implementation
+    static string _sortFolder = @"\\192.168.252.19\Company\Document Control\Sort Folder";
+    static string _materialsDSADistFolder = @"\\192.168.252.19\Company\Document Control\Dist all\MATERIALS DSA";
+    static string _materialsNonDSADistFolder = @"\\192.168.252.19\Company\Document Control\Dist all\MATERIALS NON DSA";
+    static string _geoDSADistFolder = @"\\192.168.252.19\Company\Document Control\Dist all\GEO DSA";
+    static string _geoNONDSADistFolder = @"\\192.168.252.19\Company\Document Control\Dist all\GEO Non DSA";
+    static string _sourceDirectory = @"\\192.168.252.19\Company\Document Control\QC Final dump folder Daily Reports";
+    static string _destinationDirectory = @"\\192.168.252.19\Company\Projects";
+
+    // Folder Names for Dist all Directories
+    static string materialsDSADestination = Path.GetFileName(_materialsDSADistFolder);
+    static string materialsNonDSADestination = Path.GetFileName(_materialsNonDSADistFolder);
+    static string geoDSADestinatiion = Path.GetFileName(_geoDSADistFolder);
+    static string geoNONDSADestination = Path.GetFileName(_geoNONDSADistFolder);
+
+    /**
+* @Function: Main
+* @Param: String[] args
+* @Desc: Gets File info and creates destination file paths
+* @Desc: Iterates through Destination Folders and gts into subdirectories, in each sub, it extracts a key from DirName
+* @Desc: If FileKey matches DirKey, it will then filter through specific conditions to Copy File into specific Destination Directory
+* @Desc: Handles if a File already exists in Destination, If file does not find match, File renaming if specified conditions are met, if File or Directory is incorrectly Named
+* @Desc: Logs every event and sends Mail to Project Directors. Handles and logs any exception thrown
+*/
+    public static void Main(string[] args)
+    {
+        string[] _sourceFiles = Directory.GetFiles(_sourceDirectory);
+        string[] _destFolders = Directory.GetDirectories(_destinationDirectory);
+        List<string> activityLog = new List<string>();
+        List<string> mailLog = new List<string>();
+
+        if (_sourceFiles.Length == 0)
+        {
+            activityLog.Add("No files were found in the Source Directory:  QC Dump Folder");
+            WriteActivityLog(activityLog);
+            return;
+        }
+        try
+        {
+            foreach (string sourceFile in _sourceFiles)
+            {
+                try
+                {
+                    FileInfo fi = new FileInfo(sourceFile);
+                    string destFile3 = Path.Combine(_geoNONDSADistFolder, fi.Name);
+                    string destFile4 = Path.Combine(_materialsNonDSADistFolder, fi.Name);
+                    string destFile5 = Path.Combine(_sortFolder, Path.GetFileName(sourceFile));
+                    bool fileDest1Found = false;
+                    string fileKey = matchKey(fi.Name);
+                    if (fileKey != "NULL")
+                    {
+                        foreach (string destFolder in _destFolders)
+                        {
+                            string[] subDirs = Directory.GetDirectories(destFolder);
+
+                            foreach (string subDir in subDirs)
+                            {
+                                DirectoryInfo di = new DirectoryInfo(subDir + "\\");
+                                string dirKey = matchKey(di.Name);
+                                if (dirKey != "NULL") // If index of space = -1 then dir key cannot be found so move to the next dir
+                                {
+                                    if (fileKey == dirKey)
+                                    {
+                                        string destDir = subDir + "\\Dailies\\";
+                                        if (!Directory.Exists(destDir))
+                                            Directory.CreateDirectory(destDir);
+                                        if (matchDSAKey(fi.Name) != "NULL")
+                                        {
+                                            int subIxNameLast = fi.Name.IndexOf("146");
+                                            string newName = fi.Name.Substring(8, subIxNameLast - 5) + ".pdf";
+                                            string destFile1 = Path.Combine(_geoDSADistFolder, newName);
+                                            string destFile2 = Path.Combine(_materialsDSADistFolder, newName);
+
+                                            if (newName.ToUpper().Contains("GEO"))
+                                            {
+                                                try
+                                                {
+                                                    if (File.Exists(destFile1))
+                                                    {
+                                                        activityLog.Add($"The file: [{fi.Name}] Already exists in [{geoDSADestinatiion}] so skipping the copy.");
+                                                        fileDest1Found = true;
+                                                    }
+                                                    else
+                                                    {
+                                                        File.Copy(sourceFile, _geoDSADistFolder + "\\" + newName, true);
+                                                        activityLog.Add("Geo DSA File:  [" + fi.Name + "]  MOVED  to [DistALL] -> [" + geoDSADestinatiion + "]");
+                                                        fileDest1Found = true;
+                                                    }
+                                                    if (File.Exists(destDir + "\\" + newName))
+                                                    {
+                                                        activityLog.Add($"The file: [{fi.Name}] Already exists in [{di.Name}] so skipping the copy.");
+                                                        fileDest1Found = true;
+                                                    }
+                                                    else
+                                                    {
+                                                        File.Copy(sourceFile, destDir + "\\" + newName, true);
+                                                        activityLog.Add("Geo DSA File:  [" + fi.Name + "]  MOVED  to [Projects] -> [" + di.Name + "] -> [Dailies]");
+                                                        fileDest1Found = true;
+                                                    }
+                                                }
+                                                catch (UnauthorizedAccessException e)
+                                                {
+                                                    activityLog.Add(e.Message);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                try
+                                                {
+                                                    if (File.Exists(destFile2))
+                                                    {
+                                                        activityLog.Add($"The file: [{fi.Name}] already exists in [{materialsDSADestination}] so skipping the copy.");
+                                                        fileDest1Found = true;
+                                                    }
+                                                    else
+                                                    {
+                                                        File.Copy(sourceFile, _materialsDSADistFolder + "\\" + newName, true);
+                                                        activityLog.Add("Materials DSA File:  [" + fi.Name + "]  MOVED  to [DistALL] -> [" + materialsDSADestination + "]");
+                                                        fileDest1Found = true;
+                                                    }
+                                                    if (File.Exists(destDir + "\\" + newName))
+                                                    {
+                                                        activityLog.Add($"The file: [{fi.Name}] already exists in [{di.Name}] so skipping the copy.");
+                                                        fileDest1Found = true;
+                                                    }
+                                                    else
+                                                    {
+                                                        File.Copy(sourceFile, destDir + "\\" + newName, true);
+                                                        activityLog.Add("Materials DSA File:  [" + fi.Name + "]  MOVED  to [Projects] -> [" + di.Name + "] -> [Dailies]");
+                                                        fileDest1Found = true;
+                                                    }
+                                                }
+                                                catch (UnauthorizedAccessException e)
+                                                {
+                                                    activityLog.Add(e.Message);
+                                                }
+                                            }
+                                        }
+                                        else if (fi.Name.ToUpper().Contains("GEO"))
+                                        {
+                                            try
+                                            {
+                                                if (File.Exists(destFile3))
+                                                {
+                                                    activityLog.Add($"The file: [{fi.Name}] already exists in [{geoNONDSADestination}] so skipping the copy.");
+                                                    fileDest1Found = true;
+                                                }
+                                                else
+                                                {
+                                                    File.Copy(sourceFile, _geoNONDSADistFolder + "\\" + fi.Name, true);
+                                                    activityLog.Add("Geo Non DSA File:  [" + fi.Name + "]  MOVED  to [DistALL] -> [" + geoNONDSADestination + "]");
+                                                    fileDest1Found = true;
+                                                }
+                                                if (File.Exists(destDir + "\\" + fi.Name))
+                                                {
+                                                    activityLog.Add($"The file: [{fi.Name}] already exists in [{di.Name}] so skipping the copy.");
+                                                    fileDest1Found = true;
+                                                }
+                                                else
+                                                {
+                                                    File.Copy(sourceFile, destDir + "\\" + fi.Name, true);
+                                                    activityLog.Add("Geo Non DSA File:  [" + fi.Name + "]  MOVED  to [Projects] -> [" + di.Name + "] -> [Dailies]");
+                                                    fileDest1Found = true;
+                                                }
+                                            }
+                                            catch (UnauthorizedAccessException e)
+                                            {
+                                                activityLog.Add(e.Message);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            try
+                                            {
+                                                if (File.Exists(destFile4))
+                                                {
+                                                    activityLog.Add($"The file: [{fi.Name}] already exists in [{materialsNonDSADestination}] so skipping the copy.");
+                                                    fileDest1Found = true;
+                                                }
+                                                else
+                                                {
+                                                    File.Copy(sourceFile, _materialsNonDSADistFolder + "\\" + fi.Name, true);
+                                                    activityLog.Add("Materials Non DSA File:  [" + fi.Name + "]  MOVED  to [DistALL] -> [" + materialsNonDSADestination + "]");
+                                                    fileDest1Found = true;
+                                                }
+                                                if (File.Exists(destDir + "\\" + fi.Name))
+                                                {
+                                                    activityLog.Add($"The File: [{fi.Name}] already exists in [{di.Name}] so skipping the copy.");
+                                                    fileDest1Found = true;
+
+                                                }
+                                                else
+                                                {
+                                                    File.Copy(sourceFile, destDir + "\\" + fi.Name, true);
+                                                    activityLog.Add("Materials Non DSA File:  [" + fi.Name + "]  MOVED  to [Projects] -> [" + di.Name + "] -> [Dailies]");
+                                                    fileDest1Found = true;
+                                                }
+                                            }
+                                            catch (UnauthorizedAccessException e)
+                                            {
+                                                activityLog.Add(e.Message);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // The Below If/Else condition is IF a FileKey is Correctly Identified, but It does not match to any Destination Folder
+                        if (!fileDest1Found)
+                        {
+                            if (File.Exists(destFile5))
+                            {
+                                activityLog.Add($"File: [{fi.Name}] Could not find a Destination Folder & already exists in sortFolder");
+                            }
+                            else
+                            {
+                                activityLog.Add($"File: [{fi.Name}] Destination Folder not found so File moved to sortFolder.");
+                                mailLog.Add(fi.Name + "<br> ");
+                                File.Move(sourceFile, _sortFolder + "\\" + fi.Name);
+                            }
+                        }
+                        else
+                        {
+                            try
+                            {
+                                File.Delete(sourceFile);
+                            }
+                            catch (UnauthorizedAccessException e)
+                            {
+                                activityLog.Add("Problem here " + e.Message);
+                            }
+                        }
+                    }
+                    // The Below If/Else condtion is IF a FileKey is incorrectly named, and a FileKey Could NOT be identified
+                    else
+                    {
+
+                        if (File.Exists(destFile5))
+                        {
+                            activityLog.Add($"Incorrectly Named File: [{fi.Name}] already exists in sortFolder, So I have Removed From QC Source Folder");
+                            File.Delete(sourceFile);
+                        }
+                        else
+                        {
+                            activityLog.Add($"Incorrectly Named File: [{fi.Name}] Could not be Identified, So File Moved to Sort Folder");
+                            File.Move(sourceFile, _sortFolder + "\\" + fi.Name);
+                            mailLog.Add(fi.Name + "<br> ");
+                        }
+                    }
+                }
+                catch (IOException e)
+                {
+                    activityLog.Add(e.Message);
+
+                }
+            }
+            WriteActivityLog(activityLog);
+
+            SMTPclient(mailLog);
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine(ex.Message);
+            activityLog.Add("Exception: " + ex.Message);
+        }
+    }
+
+    /**
+     * @Function: Task <KeyList>
+     * @Param: String FileName
+     * @Desc: This method is not being used - intended to keep a log of project #'s being worked to possibly reference if that info was valuable to Koury staff
+     * @Desc: Concept is to provide insight into quantity and exact # of Project's Being worked on
+     */
+    public static async Task KeyList(string fileName)
+    {
+        using StreamWriter file = new(_keyListPath, append: true);
+        await file.WriteLineAsync(fileName);
+    }
+
+    /**
+* @Function: matchKey
+* @Param: String FileName
+* @Desc: Function that uses Regex pattern to identify a match in  FileName to extract the FileKey and a match in DirectoryName to extract the DirKey
+* @Desc: This is called on fi.Name, where fi.Name is the FileName that may contain the Pattern of "xx-xxxx" to extract the FileKey from a File
+* @Desc: This is also called on di.Name where di.Name is the DirectoryName that may contain the Pattern of "xx-xxxx" to extract the DirKey from a Directory Folder
+* @Desc: Returns NULL if no pattern is met and thus the File or Directory is named incorrectly - The pattern fo "xx-xxxx" should ALWAYS exist in a FileName or ProjectFolder
+*/
+    public static string matchKey(string fileName)
+    {
+        string pattern = @"(\d{2}-\d{4})";
+        try
+        {
+            Match match = Regex.Match(fileName, pattern);
+            if (match.Success)
+            {
+                return match.Value;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+        return "NULL";
+    }
+
+    /**
+  * @Function: matchDSAKey
+  * @Param: String FileName
+  * @Desc: Function that uses Regex pattern to identify a match in  FileName for a "DSA" project
+  * @Desc: This is called on fi.Name, where fi.Name is the FileName that may contain the Pattern of "xx-xxxxxx" to Identify it as a DSA Project
+  * @Desc: Returns NULL if no pattern is met and thus the Project File is not DSA
+  */
+    public static string matchDSAKey(string fileName)
+    {
+        string pattern = @"(\d{2}-\d{6})";
+        try
+        {
+            Match match = Regex.Match(fileName, pattern);
+            if (match.Success)
+            {
+                return match.Value;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+        return "NULL";
+    }
+    
+    /**
+     * @Function: WriteActivityLog
+     * @Param: List<String></String>
+     * @Desc: Function that StreamWrtier object to create outputFile and loops through lines stored in activitylog String Array to output to LogFile
+     * @Desc: Contains "Header" that displays ProjectName, ExecutionTime, and Known Directories (Source && Destination && SortFolder)
+     * @Desc: This is called after any action is taken to a sourceFile
+     */
+    public static void WriteActivityLog(List<string> activityLog)
+    {
+        if (activityLog.Count == 0)
+        {
+            return;
+        }
+
+        string filename = "Log_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".log";
+        using (StreamWriter outputFile = new StreamWriter(_activityLogPath + "\\" + filename))
+        {
+            string[] data = {
+            "Activity Log for Koury Document Control",
+            "Time Executed: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+            "-------------------------------------",
+            "",
+            "Source Directory: ",
+            "--------------------------",
+            "[Source Folder]: [" +_sourceDirectory + "]",
+            "",
+            "Destination Directories: ",
+            "--------------------------",
+            "[Projects Root Folder]:  [" + _destinationDirectory + "]",
+            "[Geo DSA Destination]:  [" + _geoDSADistFolder + "]",
+            "[Geo NON DSA Destination]:  [" + _geoNONDSADistFolder + "]",
+            "[Materials DSA Destination]:  [" + _materialsDSADistFolder + "]",
+            "[Materials NON DSA Destination]:  [" + _materialsNonDSADistFolder + "]",
+            "",
+            "Sort Folder: ",
+            "--------------------------",
+            "[Sort Folder Destination]:  [" + _sortFolder + "]",
+            "",
+            "-------------------------------------",
+            ""
+        };
+
+            foreach (string line in data)
+            {
+                outputFile.WriteLine(line);
+            }
+
+            foreach (string aLine in activityLog)
+            {
+                outputFile.WriteLine(aLine);
+                outputFile.WriteLine("");
+            }
+        }
+    }
+
+
+    /**
+     * @Function: SMTPclient - static and returns nothing 
+     * @Param: List<String></String>
+     * @Desc: Function that uses SmtpClient Libray to create a new Smtp Client object
+     * @Desc: it then Creates a message body filled by first foreach loop (mail in mailLog)
+     * @Desc: This is called after any exception is found, and stores source file anme in mailLog String List
+     */
+    public static void SMTPclient(List<string> mailLog)
+    {
+
+        // First create the container "msgbody" to store my maillog in
+        string msgBody = "";
+        int i = 1;
+
+        // Loop through my ArrayList of <strings> called maillog
+        // Add each string to msgBody one by one, <br> means newline
+        foreach (string mail in mailLog)
+        {
+            msgBody = msgBody + "<br>" + i + ":   " + mail;
+            i++;
+        }
+        using (SmtpClient client = new SmtpClient()
+        {
+            Host = "smtp.office365.com",
+            Port = 587,
+            UseDefaultCredentials = false,
+            DeliveryMethod = SmtpDeliveryMethod.Network,
+            Credentials = new NetworkCredential("User@NeedToEncrypt.com", "NeedToEncrypt"),
+            TargetName = "STARTTLS/smtp.office365.com",
+            EnableSsl = true
+        })
+        {
+
+            MailMessage message = new MailMessage()
+            {
+
+                // Found Structure for this from SMTPClient library online
+                From = new MailAddress("asiuser@kouryengineering.com"),
+                Subject = "Review Logs",
+                IsBodyHtml = true,
+                Body = "Koury Document Control Executed Succesfuly <br> The Following Files: <br> " + msgBody + "<br><br><br>Could not be placed and have been transferred to Sort Folder " +
+                "<br><br> Visit Sort Folder: <a href=\"" + _sortFolder + "\">Sort Folder</a><br><br>",
+                BodyEncoding = System.Text.Encoding.UTF8,
+                SubjectEncoding = System.Text.Encoding.UTF8,
+
+            };
+
+            // Edit the below recipients, seperated by comma as shown below, ( recipients.split(,) ) if email address needs to be updated
+            var recipients = "aharvey@asi-networks.com,aaron@zomelis.net";
+            var toAddresses = recipients.Split(',');
+            foreach (var to in toAddresses)
+            {
+                message.To.Add(to.Trim());
+            }
+
+            try
+            {
+                client.Send(message);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex.Message);
+            }
+        }
+    }
+}
+
+
+
+
+
+
